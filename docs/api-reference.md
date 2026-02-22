@@ -532,6 +532,37 @@ config := projection.DefaultProcessorConfig()
 processor := postgres.NewProcessor(db, store, &config)
 ```
 
+### projection.Dispatcher
+
+Optional coordinator for projection workers running in the same process.
+
+It centralizes idle polling and emits best-effort wake-up signals to processors. This reduces redundant empty polling queries when many projections are running together.
+
+**Correctness model:** Dispatcher is optimization-only. Delivery guarantees still come from checkpoints + processor pull logic + fallback polling.
+
+#### DefaultDispatcherConfig
+
+Returns default dispatcher configuration.
+
+```go
+cfg := projection.DefaultDispatcherConfig()
+cfg.PollInterval = 150 * time.Millisecond // Optional override
+
+dispatcher := projection.NewDispatcher(db, store, &cfg)
+err := dispatcher.Run(ctx)
+```
+
+#### Integration with runner
+
+```go
+dispatcher := projection.NewDispatcher(db, store, nil)
+
+cfg := projection.DefaultProcessorConfig()
+cfg.WakeupSource = dispatcher
+
+processor := postgres.NewProcessor(db, store, &cfg)
+```
+
 ### projection.Processor (Legacy)
 
 **Deprecated in v1.2.0** - Use adapter-specific processors instead:
@@ -602,11 +633,16 @@ Configuration for projection processor.
 ```go
 type ProcessorConfig struct {
     PartitionStrategy PartitionStrategy  // Partitioning strategy
+    WakeupSource      WakeupSource       // Optional wake-up source (dispatcher)
     Logger            es.Logger          // Optional logger (nil = disabled)
     RunMode           RunMode            // Processing mode (continuous or one-off)
     BatchSize         int                // Events per batch
     PartitionKey      int                // This worker's partition (0-indexed)
     TotalPartitions   int                // Total number of partitions
+    PollInterval      time.Duration      // Base fallback polling interval
+    MaxPollInterval   time.Duration      // Cap for polling backoff
+    PollBackoffFactor float64            // Polling backoff multiplier
+    WakeupJitter      time.Duration      // Jitter before wake-up handling
 }
 ```
 
@@ -624,6 +660,14 @@ Use `RunModeOneOff` for integration tests and one-time catch-up operations.
 
 **Breaking Change (v1.2.0):** Removed `EventsTable` and `CheckpointsTable` fields. Table configuration is now handled by the adapter's store configuration.
 
+#### Wake-Up and Polling Fields (v1.4.0+)
+
+- `WakeupSource`: Optional signal source (typically `projection.Dispatcher`)
+- `PollInterval`: Base fallback polling interval
+- `MaxPollInterval`: Maximum fallback polling interval during backoff
+- `PollBackoffFactor`: Multiplier used when backing off idle polling
+- `WakeupJitter`: Jitter before wake-up processing to smooth spikes
+
 #### DefaultProcessorConfig
 
 Returns default configuration.
@@ -634,6 +678,11 @@ func DefaultProcessorConfig() ProcessorConfig {
         BatchSize:         100,
         PartitionKey:      0,
         TotalPartitions:   1,
+        PollInterval:      100 * time.Millisecond,
+        MaxPollInterval:   5 * time.Second,
+        PollBackoffFactor: 2.0,
+        WakeupJitter:      25 * time.Millisecond,
+        WakeupSource:      nil,
         PartitionStrategy: HashPartitionStrategy{},
         Logger:            nil,  // No logging by default
         RunMode:           RunModeContinuous,  // Continuous mode by default

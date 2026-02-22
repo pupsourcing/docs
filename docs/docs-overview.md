@@ -513,6 +513,7 @@ The [pupsourcing repository](https://github.com/getpup/pupsourcing) includes com
 - **mysql-basic** - MySQL/MariaDB example
 - **single-worker** - Single projection worker
 - **multiple-projections** - Running multiple projections together
+- **dispatcher-runner** - Shared dispatcher + runner wiring for lower idle polling load
 - **worker-pool** - Worker pool with partitioned projections
 - **partitioned** - Separate processes with partitioning
 - **scaling** - Dynamic scaling demonstration

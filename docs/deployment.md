@@ -19,7 +19,7 @@ Before deploying, you need to implement a `run-projections` command in your appl
 1. Parse configuration from environment variables or flags
 2. Initialize database connection
 3. Create projection instances
-4. Use the runner package to start processing
+4. Use the runner package to start processing (and use a shared dispatcher for multi-projection workers)
 
 **Example implementation:**
 
@@ -99,6 +99,49 @@ func main() {
     }
 }
 ```
+
+### Recommended for Multi-Projection Workers (v1.4.0+)
+
+When one process runs multiple continuous projections, prefer `projection.Dispatcher` + `runner` wiring so processors share wake-up signals:
+
+```go
+runCtx, cancel := context.WithCancel(ctx)
+defer cancel()
+
+dispatcher := projection.NewDispatcher(db, store, nil)
+dispatcherErrCh := make(chan error, 1)
+go func() { dispatcherErrCh <- dispatcher.Run(runCtx) }()
+
+newProcessor := func() *postgres.Processor {
+    cfg := projection.DefaultProcessorConfig()
+    cfg.WakeupSource = dispatcher
+    cfg.PollInterval = 500 * time.Millisecond
+    cfg.MaxPollInterval = 8 * time.Second
+    cfg.PollBackoffFactor = 2.0
+    cfg.WakeupJitter = 25 * time.Millisecond
+    return postgres.NewProcessor(db, store, &cfg)
+}
+
+runners := []runner.ProjectionRunner{
+    {Projection: &UserReadModelProjection{db: db}, Processor: newProcessor()},
+    {Projection: &AnalyticsProjection{db: db}, Processor: newProcessor()},
+}
+
+runErr := runner.New().Run(runCtx, runners)
+cancel()
+dispatcherErr := <-dispatcherErrCh
+
+if runErr != nil && !errors.Is(runErr, context.Canceled) {
+    return runErr
+}
+if dispatcherErr != nil &&
+    !errors.Is(dispatcherErr, context.Canceled) &&
+    !errors.Is(dispatcherErr, context.DeadlineExceeded) {
+    // warn only: dispatcher is optimization-only
+}
+```
+
+This reduces empty polling queries and database pressure while preserving correctness guarantees via checkpointing + fallback polling.
 
 For multiple projections or partitioned execution, see the [scaling guide](./scaling.md) and [examples](https://github.com/getpup/pupsourcing/tree/master/examples).
 

@@ -1,17 +1,31 @@
 # Changelog
 
-## v1.2.0 - 2026-01-27
+## v1.4.0 - 2026-02-22
+
+### New Features
+
+- **Dispatcher for projection workers** - Added optional `projection.Dispatcher` to reduce redundant idle polling across many projections in one process.
+
+### Improvements
+
+- **Recommended runtime pattern** - Use dispatcher + runner with shared `WakeupSource` for multi-projection workers.
+- **Polling controls in `ProcessorConfig`** - Added `WakeupSource`, `PollInterval`, `MaxPollInterval`, `PollBackoffFactor`, and `WakeupJitter`.
+- **Safety model remains unchanged** - Dispatcher is optimization-only; checkpointing and fallback polling still guarantee catch-up.
+
+See [dispatcher-runner example](https://github.com/getpup/pupsourcing/tree/master/examples/dispatcher-runner) for lifecycle-safe integration.
+
+## v0.0.3 - 2026-01-27
 
 ### Breaking Changes
 
 ⚠️ **Projection Handle Signature Change** - The `Projection.Handle` method now includes a transaction parameter to enable atomic read model and checkpoint updates.
 
-**Before (v1.1.0):**
+**Before (v0.0.2):**
 ```go
 func (p *MyProjection) Handle(ctx context.Context, event es.PersistedEvent) error
 ```
 
-**After (v1.2.0):**
+**After (v0.0.3):**
 ```go
 func (p *MyProjection) Handle(ctx context.Context, tx *sql.Tx, event es.PersistedEvent) error
 ```
@@ -57,7 +71,7 @@ func (p *MessageBrokerPublisher) Handle(ctx context.Context, tx *sql.Tx, event e
 - All adapters (PostgreSQL, MySQL, SQLite) pass transaction to projections
 - Processor manages transaction lifecycle automatically
 
-## v1.1.0 - 2026-01-19
+## v0.0.2 - 2026-01-19
 
 ### New Features
 

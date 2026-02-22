@@ -6,7 +6,8 @@ Guide to building and managing projections in pupsourcing.
 
 1. [Projections Overview](#projections-overview)
 2. [Basic Implementation](#basic-implementation)
-3. [One-Off Projection Processing](#one-off-projection-processing)
+3. [Dispatcher for Multi-Projection Workers](#dispatcher-for-multi-projection-workers)
+4. [One-Off Projection Processing](#one-off-projection-processing)
 
 ## Projections Overview
 
@@ -152,6 +153,53 @@ defer cancel()
 
 err := processor.Run(ctx, proj)
 ```
+
+### Dispatcher for Multi-Projection Workers
+
+When running multiple continuous projections in one process, each processor polling independently can create unnecessary idle queries.
+In v1.4.0+, prefer a shared `projection.Dispatcher` and set it as each processor's `WakeupSource`.
+
+- Dispatcher is **optimization-only**: checkpoints, ordering, and delivery guarantees still come from processors.
+- Fallback polling remains active, so projections still catch up if dispatcher signals are missed.
+
+```go
+runCtx, cancel := context.WithCancel(ctx)
+defer cancel()
+
+dispatcher := projection.NewDispatcher(db, store, nil)
+dispatcherErrCh := make(chan error, 1)
+go func() { dispatcherErrCh <- dispatcher.Run(runCtx) }()
+
+newProcessor := func() *postgres.Processor {
+    cfg := projection.DefaultProcessorConfig()
+    cfg.WakeupSource = dispatcher
+    cfg.PollInterval = 500 * time.Millisecond
+    cfg.MaxPollInterval = 8 * time.Second
+    cfg.PollBackoffFactor = 2.0
+    cfg.WakeupJitter = 25 * time.Millisecond
+    return postgres.NewProcessor(db, store, &cfg)
+}
+
+r := runner.New()
+runErr := r.Run(runCtx, []runner.ProjectionRunner{
+    {Projection: &UserProjection{}, Processor: newProcessor()},
+    {Projection: &AnalyticsProjection{}, Processor: newProcessor()},
+})
+
+cancel()
+dispatcherErr := <-dispatcherErrCh
+
+if runErr != nil && !errors.Is(runErr, context.Canceled) {
+    return runErr
+}
+if dispatcherErr != nil &&
+    !errors.Is(dispatcherErr, context.Canceled) &&
+    !errors.Is(dispatcherErr, context.DeadlineExceeded) {
+    // warn only: dispatcher is optimization-only
+}
+```
+
+See the runnable example: [`examples/dispatcher-runner`](https://github.com/getpup/pupsourcing/tree/master/examples/dispatcher-runner).
 
 ### Key Features
 
@@ -301,4 +349,3 @@ func TestProjection_OneOffMode(t *testing.T) {
 - Works with all adapters: postgres, mysql, sqlite
 - Partition configuration is respected in one-off mode
 - Scoped projections work normally in one-off mode
-

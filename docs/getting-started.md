@@ -229,6 +229,12 @@ defer cancel()
 err := processor.Run(ctx, proj)
 ```
 
+!!! tip "Production recommendation (v1.4.0+) for multiple projections"
+    If you run multiple continuous projections in the same process, start a shared `projection.Dispatcher` and set `config.WakeupSource = dispatcher` for each processor.  
+    This reduces redundant idle polling and database load, while fallback polling still guarantees catch-up correctness.
+    
+    See the runnable example: [`examples/dispatcher-runner`](https://github.com/getpup/pupsourcing/tree/master/examples/dispatcher-runner).
+
 !!! tip "Testing Projections"
     When writing integration tests for projections, use `RunModeOneOff` to process events synchronously:
     

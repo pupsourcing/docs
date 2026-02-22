@@ -243,9 +243,18 @@ import "github.com/getpup/pupsourcing/es/projection/runner"
 
 store := postgres.NewStore(postgres.DefaultStoreConfig())
 
-// Create a single processor - it can be reused for multiple projections
-// since processors are stateless orchestrators
+// Recommended in v1.4.0+: run a shared dispatcher to reduce idle polling.
+dispatcher := projection.NewDispatcher(db, store, nil)
+go func() { _ = dispatcher.Run(ctx) }()
+
 config := projection.DefaultProcessorConfig()
+config.WakeupSource = dispatcher
+config.PollInterval = 500 * time.Millisecond
+config.MaxPollInterval = 8 * time.Second
+config.PollBackoffFactor = 2.0
+config.WakeupJitter = 25 * time.Millisecond
+
+// A processor can still be reused for multiple projections.
 processor := postgres.NewProcessor(db, store, &config)
 
 r := runner.New()
@@ -256,7 +265,7 @@ err := r.Run(ctx, []runner.ProjectionRunner{
 })
 ```
 
-See [multiple-projections example](https://github.com/getpup/pupsourcing/tree/master/examples/multiple-projections) for details.
+See [multiple-projections example](https://github.com/getpup/pupsourcing/tree/master/examples/multiple-projections) and [dispatcher-runner example](https://github.com/getpup/pupsourcing/tree/master/examples/dispatcher-runner) for details.
 
 ### Trade-offs
 
@@ -340,6 +349,26 @@ config.PollInterval = 50 * time.Millisecond
 - Increase for high database load scenarios
 - Decrease for latency-sensitive projections
 - Monitor database connections and adjust accordingly
+
+### Wake-Up and Backoff Tuning (v1.4.0+)
+
+With dispatcher-based workers, keep fallback polling enabled and tune it to reduce idle database load:
+
+```go
+config := projection.DefaultProcessorConfig()
+config.WakeupSource = dispatcher       // shared projection.Dispatcher
+config.PollInterval = 500 * time.Millisecond
+config.MaxPollInterval = 8 * time.Second
+config.PollBackoffFactor = 2.0
+config.WakeupJitter = 25 * time.Millisecond
+```
+
+Defaults:
+- `PollInterval`: `100ms`
+- `MaxPollInterval`: `5s`
+- `PollBackoffFactor`: `2.0`
+- `WakeupJitter`: `25ms`
+- `WakeupSource`: `nil`
 
 ### Monitoring
 
