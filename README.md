@@ -1,6 +1,6 @@
 # pupsourcing-website
 
-Documentation website for the [getpup/pupsourcing](https://github.com/getpup/pupsourcing) project - Clean Event Sourcing library written in Go.
+Documentation website for the [pupsourcing/core](https://github.com/pupsourcing/core) project - Clean Event Sourcing library written in Go.
 
 ## Overview
 
@@ -44,8 +44,8 @@ The built site will be in the `site/` directory.
   - `getting-started.md` - Installation and quick start
   - `core-concepts.md` - Event sourcing fundamentals
   - `adapters.md` - Database adapter documentation
-  - `scaling.md` - Projections and scaling guide
-  - `api-reference.md` - Complete API documentation
+  - `consumers.md` - Consumers and projections guide
+  - `deployment.md` - Worker-first deployment and operations
   - And more...
 
 ## Deployment
@@ -72,4 +72,4 @@ Contributions are welcome! Please:
 
 ## License
 
-MIT License - see the [pupsourcing LICENSE](https://github.com/getpup/pupsourcing/blob/main/LICENSE)
+MIT License - see the [pupsourcing LICENSE](https://github.com/pupsourcing/core/blob/main/LICENSE)

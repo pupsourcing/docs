@@ -1,10 +1,10 @@
 site_name: Pupsourcing
 site_description: Clean Event Sourcing library for Go
-site_author: getpup
-site_url: https://getpup.github.io/pupsourcing-website
+site_author: pupsourcing
+site_url: https://pupsourcing.gopup.dev
 
-repo_name: getpup/pupsourcing
-repo_url: https://github.com/getpup/pupsourcing
+repo_name: pupsourcing/core
+repo_url: https://github.com/pupsourcing/core
 
 theme:
   name: null
