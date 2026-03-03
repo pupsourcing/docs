@@ -426,6 +426,15 @@ Type-safe event mapping:
   - Clean architecture integration
   - Repository adapter pattern
 
+### Integration Delivery
+Ship integration events safely:
+
+- **[Outbox](outbox.md)** - Transaction-safe delivery with Watermill SQL + Forwarder
+  - Dual-write failure modes and transactional staging
+  - SQL -> RabbitMQ forwarding architecture
+  - At-least-once delivery and idempotency requirements
+  - Retry vs poison queue handling and operations
+
 ### Production Operations
 Deploy and monitor:
 
@@ -460,13 +469,15 @@ Learn more about the project:
 ### For Production
 1. Review [Database Adapter](adapters.md) and configure PostgreSQL
 2. Implement [Consumers](consumers.md)
-3. Set up [Observability](observability.md)
-4. Follow [Deployment Guide](deployment.md)
+3. Add [Outbox](outbox.md) for transactional integration delivery
+4. Set up [Observability](observability.md)
+5. Follow [Deployment Guide](deployment.md)
 
 ### For Advanced Users
 1. Implement [Event Mapping Code Generation](eventmap-gen.md)
-2. Tune worker configuration in [Deployment](deployment.md)
-3. Build specialized consumers in [Consumers](consumers.md)
+2. Design idempotent handlers and poison queue flows with [Outbox](outbox.md)
+3. Tune worker configuration in [Deployment](deployment.md)
+4. Build specialized consumers in [Consumers](consumers.md)
 
 ---
 
@@ -499,6 +510,7 @@ Each example includes a README with setup instructions and explanation of concep
 - **[Core Concepts](core-concepts.md)** - Deep dive into event sourcing principles
 - **[Database Adapter](adapters.md)** - Configuring your PostgreSQL database
 - **[Consumers](consumers.md)** - Building read models and integration consumers
+- **[Outbox](outbox.md)** - Transaction-safe integration delivery with Watermill
 - **[Deployment](deployment.md)** - Worker-first production guidance
 
 ---

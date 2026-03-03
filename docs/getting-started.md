@@ -246,6 +246,7 @@ See the [complete working example](https://github.com/pupsourcing/core/tree/mast
 
 - Learn [Core Concepts](./core-concepts.md) to understand event sourcing with pupsourcing
 - Learn [Consumers](./consumers.md) to build read models and integration handlers
+- Read [Outbox](./outbox.md) for transaction-safe integration message delivery
 - Read [Deployment](./deployment.md) for production setup guidance
 - Browse [Examples](https://github.com/pupsourcing/core/tree/master/examples) for more patterns
 
