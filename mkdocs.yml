@@ -12,7 +12,16 @@ theme:
 
 nav:
   - Home: index.md
-  - Docs: docs-overview.md
+  - Docs:
+      - Overview: docs-overview.md
+      - Getting Started: getting-started.md
+      - Core Concepts: core-concepts.md
+      - Consumers: consumers.md
+      - Outbox: outbox.md
+      - Supported Databases: adapters.md
+      - Code Generation: eventmap-gen.md
+      - Deployment: deployment.md
+      - Observability: observability.md
   - Changelog: changelog.md
   - About: about.md
 
