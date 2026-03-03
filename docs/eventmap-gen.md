@@ -34,7 +34,7 @@ Manually mapping between these layers is error-prone and repetitive. This tool:
 **Go 1.24+** (recommended): Use the new `go get -tool` feature to install tools locally to your module:
 
 ```bash
-go get -tool github.com/getpup/pupsourcing/cmd/eventmap-gen@latest
+go get -tool github.com/pupsourcing/core/cmd/eventmap-gen@latest
 ```
 
 This allows you to use it with `go generate` directives:
@@ -46,13 +46,13 @@ This allows you to use it with `go generate` directives:
 **Go 1.23 and earlier**: Use `go run` directly in your `go:generate` directives (no installation needed):
 
 ```go
-//go:generate go run github.com/getpup/pupsourcing/cmd/eventmap-gen -input ../../domain/events -output . -package persistence
+//go:generate go run github.com/pupsourcing/core/cmd/eventmap-gen -input ../../domain/events -output . -package persistence
 ```
 
 Or run the tool directly from the command line:
 
 ```bash
-go run github.com/getpup/pupsourcing/cmd/eventmap-gen [flags]
+go run github.com/pupsourcing/core/cmd/eventmap-gen [flags]
 ```
 
 ## Quick Start
@@ -93,7 +93,7 @@ This runs any `//go:generate` directives in your code. See [Using with go genera
 Alternatively, run the tool directly:
 
 ```bash
-go run github.com/getpup/pupsourcing/cmd/eventmap-gen \
+go run github.com/pupsourcing/core/cmd/eventmap-gen \
   -input internal/domain/events \
   -output internal/infrastructure/persistence/generated \
   -package generated
@@ -114,7 +114,7 @@ eventmap-gen \
 package main
 
 import (
-    "github.com/getpup/pupsourcing/es"
+    "github.com/pupsourcing/core/es"
     "github.com/google/uuid"
     "internal/domain/events/v1"
     "internal/infrastructure/persistence/generated"
@@ -240,6 +240,7 @@ func ToESEvents[T any](
 ```
 
 Converts domain events to `es.Event` instances with:
+
 - JSON marshaling of payload
 - Automatic version assignment
 - UUID generation
@@ -365,7 +366,7 @@ This tool maintains clean architecture boundaries:
 │ │ - FromESEvents()                    │ │
 │ └─────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────┐ │
-│ │ Event Store (PostgreSQL/SQLite)     │ │
+│ │ Event Store (PostgreSQL)             │ │
 │ └─────────────────────────────────────┘ │
 └─────────────────────────────────────────┘
 ```
@@ -421,8 +422,8 @@ import (
     "context"
     "database/sql"
 
-    "github.com/getpup/pupsourcing/es"
-    "github.com/getpup/pupsourcing/es/adapters/postgres"
+    "github.com/pupsourcing/core/es"
+    "github.com/pupsourcing/core/es/adapters/postgres"
     
     "myapp/internal/domain/user"
     "myapp/internal/domain/user/events/v1"
@@ -509,6 +510,7 @@ go generate ./internal/infrastructure/persistence/user/...
 This creates `event_mapping.gen.go` and `event_mapping.gen_test.go` in the same directory as the repository, keeping all infrastructure code together.
 
 **Benefits of this approach:**
+
 - Code generation is co-located with the adapter that uses it
 - Running `go generate ./...` regenerates all mapping code
 - CI/CD can verify generated code is up to date with `go generate -x ./... && git diff --exit-code`
@@ -556,7 +558,7 @@ The recommended approach is to add `//go:generate` directives in your infrastruc
 **For Go 1.23 and earlier**, use `go run`:
 
 ```go
-//go:generate go run github.com/getpup/pupsourcing/cmd/eventmap-gen -input ../../domain/events -output . -package persistence
+//go:generate go run github.com/pupsourcing/core/cmd/eventmap-gen -input ../../domain/events -output . -package persistence
 ```
 
 Then run:
@@ -588,7 +590,7 @@ type OrderCreated struct {
 ```go
 package v1
 
-import "github.com/getpup/pupsourcing/es"
+import "github.com/pupsourcing/core/es"
 
 // Don't couple domain to infrastructure
 type OrderCreated struct {
@@ -600,6 +602,7 @@ type OrderCreated struct {
 ### 2. Version When Schema Changes
 
 Create a new version when:
+
 - Adding required fields
 - Changing field types
 - Removing fields
@@ -662,6 +665,7 @@ type UserRegistered struct {
 **Cause:** No exported structs found in input directory.
 
 **Solution:** Ensure:
+
 - Structs are exported (capitalized names)
 - Files are `.go` files (not `_test.go`)
 - Directory path is correct
@@ -761,4 +765,4 @@ eventmap-gen -input events/order -output persistence/order/generated
 - [Event Sourcing Pattern](https://martinfowler.com/eaaDev/EventSourcing.html)
 - [Versioned Domain Events](https://www.eventstore.com/blog/versioning-in-an-event-sourced-system)
 - [pupsourcing Core Concepts](core-concepts.md)
-- [pupsourcing API Reference](api-reference.md)
+- [pupsourcing Consumers Guide](consumers.md)

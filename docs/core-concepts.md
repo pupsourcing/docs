@@ -52,6 +52,7 @@ Historical state = Apply events up to specific point in time
 ### Trade-offs
 
 **Advantages:**
+
 - Complete historical record of all state changes
 - Flexible read models without migrations
 - Natural audit logging for compliance
@@ -59,14 +60,16 @@ Historical state = Apply events up to specific point in time
 - Effective debugging through event replay
 
 **Considerations:**
+
 - Higher complexity than simple CRUD
 - Learning curve for team members
-- Projections must handle idempotency
+- Consumers must handle idempotency
 - Eventual consistency in read models
 - Storage growth over time
 - Schema evolution for immutable events
 
 **When to Use:**
+
 - Systems requiring audit trails (financial, healthcare, legal)
 - Complex business domains
 - Applications needing temporal queries
@@ -74,6 +77,7 @@ Historical state = Apply events up to specific point in time
 - Multiple read models from same data
 
 **When to Avoid:**
+
 - Simple CRUD applications
 - Prototypes without event sourcing requirements
 - Teams lacking event sourcing experience
@@ -87,7 +91,7 @@ pupsourcing requires all events to belong to a **bounded context**, supporting D
 
 - **Domain Isolation**: Different parts of your system (e.g., Identity, Billing, Catalog) can evolve independently
 - **Clear Boundaries**: Events are explicitly scoped, preventing accidental mixing of concerns
-- **Flexible Projections**: Scoped projections can filter by both aggregate type and bounded context
+- **Flexible Consumers**: Scoped consumers can filter by both aggregate type and bounded context
 - **Uniqueness**: Event uniqueness is enforced per `(BoundedContext, AggregateType, AggregateID, AggregateVersion)`
 - **Scalability**: Partition event store tables by bounded context for improved performance
 - **Retention Policies**: Different contexts can have different data retention requirements
@@ -142,6 +146,7 @@ Each context should represent a distinct area of the business with its own termi
 Events are immutable facts that have occurred in your system. They represent something that happened in the past and cannot be changed or deleted.
 
 **Key principles:**
+
 - Events are named in past tense: `UserCreated`, `OrderPlaced`, `PaymentProcessed`
 - Events are immutable once persisted
 - Events contain all data needed to understand what happened
@@ -198,16 +203,19 @@ This separation ensures events are value objects until persisted. The store assi
 #### Event Design Best Practices
 
 **✅ Good event names:**
+
 - `OrderPlaced` (not `PlaceOrder` - it already happened)
 - `PaymentCompleted` (not `Payment` - be specific)
 - `UserEmailChanged` (not `UserUpdated` - what exactly changed?)
 
 **❌ Bad event names:**
+
 - `CreateUser` (command, not event)
 - `Update` (too generic)
 - `UserEvent` (meaningless)
 
 **Event payload guidelines:**
+
 - Include all data needed to understand the event
 - Don't include computed values that can be derived
 - Use JSON for flexibility and readability
@@ -233,6 +241,7 @@ Example:
 An aggregate is a cluster of related domain objects that are treated as a unit for data changes. In event sourcing, an aggregate is the primary unit of consistency.
 
 **Core principles:**
+
 - An aggregate is a consistency boundary
 - All events for an aggregate are processed in order
 - Aggregates are identified by `AggregateType` + `AggregateID`
@@ -284,38 +293,41 @@ type EventStore interface {
 ```
 
 **Properties:**
+
 - Append-only (events are never modified or deleted)
 - Globally ordered (via `global_position`)
 - Transactional (uses provided transaction)
 - Optimistic concurrency via expectedVersion parameter
 
-### 4. Projections
+### 4. Consumers
 
-Projections transform events into read models (materialized views), enabling flexible query patterns and eventual consistency.
+Consumers process persisted events and produce side effects (read models, integration messages, audit updates, etc.).
 
-**Two types of projections:**
+A projection is a specific consumer that builds query-oriented read models.
 
-1. **Scoped Projections** - Filter by aggregate type (for read models):
+**Two common consumer shapes:**
+
+1. **Scoped Consumers** - Filter by aggregate type and/or bounded context:
 ```go
-type ScopedProjection interface {
-    Projection
-    AggregateTypes() []string     // Filter by aggregate type
-    BoundedContexts() []string    // Filter by bounded context
+type ScopedConsumer interface {
+    Consumer
+    AggregateTypes() []string
+    BoundedContexts() []string
 }
 ```
 
-2. **Global Projections** - Receive all events (for integration/audit):
+2. **Global Consumers** - Receive all events:
 ```go
-type Projection interface {
+type Consumer interface {
     Name() string
     Handle(ctx context.Context, tx *sql.Tx, event es.PersistedEvent) error
 }
 ```
 
-**Projection lifecycle:**
+**Consumer lifecycle:**
 1. Read batch of events from store starting from checkpoint
 2. Apply partition filter (for horizontal scaling)
-3. Apply aggregate type filter (for scoped projections)
+3. Apply aggregate/bounded-context filters (for scoped consumers)
 4. Call Handle() for each event within a transaction
 5. Update checkpoint atomically
 6. Commit transaction
@@ -323,18 +335,19 @@ type Projection interface {
 
 ### 5. Checkpoints
 
-Checkpoints track where a projection has processed up to.
+Checkpoints track where a consumer has processed up to.
 
 ```sql
-CREATE TABLE projection_checkpoints (
-    projection_name TEXT PRIMARY KEY,
+CREATE TABLE consumer_checkpoints (
+    consumer_name TEXT PRIMARY KEY,
     last_global_position BIGINT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
 ```
 
 **Key features:**
-- One checkpoint per projection
+
+- One checkpoint per consumer
 - Updated atomically with event processing
 - Enables resumable processing
 
@@ -396,6 +409,7 @@ Event 3 → global_position = 3
 ```
 
 **Uses:**
+
 - Checkpoint tracking
 - Event replay
 - Ordered processing
@@ -417,6 +431,7 @@ User XYZ:
 ```
 
 **Uses:**
+
 - Optimistic concurrency
 - Event replay
 - Aggregate reconstruction
@@ -567,6 +582,7 @@ return tx.Commit()
 ```
 
 **Benefits:**
+
 - Compose operations atomically
 - Control isolation levels
 - Integrate with existing code
@@ -579,11 +595,10 @@ pupsourcing is designed as a library that you integrate into your application. Y
 
 **Library approach (pupsourcing):**
 ```go
-// You control when and how to run projections
+// You control when and how to run consumers
 store := postgres.NewStore(postgres.DefaultStoreConfig())
-config := projection.DefaultProcessorConfig()
-processor := postgres.NewProcessor(db, store, &config)
-err := processor.Run(ctx, projection)
+w := postgres.NewWorker(db, store)
+err := w.Run(ctx, &UserReadModel{})
 ```
 
 **Framework approach (not pupsourcing):**
@@ -603,41 +618,41 @@ All dependencies are passed explicitly as parameters. There are no hidden global
 ```go
 // Every dependency is visible at the call site
 store := postgres.NewStore(postgres.DefaultStoreConfig())
-config := projection.DefaultProcessorConfig()
-processor := postgres.NewProcessor(db, store, &config)
-
-r := runner.New()
-err := r.Run(ctx, []runner.ProjectionRunner{
-    {Projection: proj1, Processor: processor},
-})
+w := postgres.NewWorker(
+    db,
+    store,
+    worker.WithTotalSegments(32),
+)
+err := w.Run(ctx, &UserReadModel{}, &OrderProjection{})
 ```
 
 **Implicit dependencies (not pupsourcing):**
 ```go
-// Where do projections come from? Service locator? Global registry?
-runner.Start()  // Unclear what this will execute
+// Where do consumers come from? Service locator? Global registry?
+app.RunConsumers()
 ```
 
 Benefits: Code is easier to understand, test, and debug when all dependencies are explicit.
 
 ### 3. Pull-Based Event Processing
 
-Projections actively read events from the store at their own pace. The library does not use publish-subscribe patterns or push-based delivery.
+Consumers actively read events from the store at their own pace. The library does not use publish-subscribe patterns or push-based delivery.
 
 **Pull-based processing (pupsourcing):**
 ```go
-// Projection reads events on its own schedule
+// Consumer reads events on its own schedule
 for {
     events := store.ReadEvents(ctx, tx, checkpoint, batchSize)
     for _, event := range events {
-        projection.Handle(ctx, tx, event)
+        consumer.Handle(ctx, tx, event)
     }
     // Update checkpoint and commit
 }
 ```
 
 Benefits:
-- Natural backpressure mechanism (slow projections won't overwhelm the system)
+
+- Natural backpressure mechanism (slow consumers won't overwhelm the system)
 - No connection pooling or message broker management required
 - Works consistently across different storage backends
 - Simple failure recovery (resume from checkpoint)
@@ -647,7 +662,8 @@ Benefits:
 The database serves as the coordination mechanism. No external distributed systems are required for basic operation.
 
 Database provides:
-- **Checkpoints**: Each projection tracks its position via a database row
+
+- **Checkpoints**: Each consumer tracks its position via a database row
 - **Optimistic concurrency**: Enforced through unique constraints on aggregate versions
 - **Transactional consistency**: Operations are atomic within database transactions
 
@@ -660,12 +676,14 @@ This approach keeps infrastructure requirements minimal while providing reliable
 Write events and read them back within the same transaction for immediate consistency.
 
 **Why this is useful:** 
+
 - Enables strong consistency within a single operation
 - Allows validation of command results before committing
 - Useful for synchronous command handlers that need to return aggregate state
 - Avoids eventual consistency delays when immediate feedback is required
 
 **When to use this:**
+
 - Command handlers that return the updated aggregate state
 - Workflows requiring immediate validation of business rules
 - APIs that need to return complete state after mutations
@@ -725,12 +743,14 @@ func PlaceOrder(ctx context.Context, db *sql.DB, store *postgres.Store, items []
 Handle different event versions by converting older event formats to newer ones during processing.
 
 **Why this is useful:**
+
 - Enables schema evolution without data migration
 - Maintains backward compatibility with historical events
 - Allows business logic to work with a single current version
 - Simplifies projection and aggregate reconstruction code
 
 **When to use this:**
+
 - Event schemas have evolved over time (added/removed/renamed fields)
 - You want to normalize handling of different event versions
 - Complex projections that would otherwise need version-specific logic
@@ -887,6 +907,7 @@ func LoadUser(ctx context.Context, tx es.DBTX, store store.AggregateStreamReader
 ```
 
 **Key principles:**
+
 - **Domain layer**: Pure business logic, works only with domain events
 - **Infrastructure layer**: Handles conversion between es.PersistedEvent and domain events  
 - **No infrastructure creep**: Aggregate never depends on pupsourcing types
@@ -896,6 +917,6 @@ func LoadUser(ctx context.Context, tx es.DBTX, store store.AggregateStreamReader
 ## See Also
 
 - [Getting Started](./getting-started.md) - Setup and first steps
-- [Scaling Guide](./scaling.md) - Production patterns
-- [API Reference](./api-reference.md) - Complete API docs
-- [Examples](https://github.com/getpup/pupsourcing/tree/master/examples) - Working code examples
+- [Consumers](./consumers.md) - Consumer and projection patterns
+- [Deployment](./deployment.md) - Running workers in production
+- [Examples](https://github.com/pupsourcing/core/tree/master/examples) - Working code examples

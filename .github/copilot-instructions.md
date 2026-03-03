@@ -14,7 +14,7 @@
 
 ## High-level architecture
 
-- This repository is the documentation website for `getpup/pupsourcing`; product source code lives in the upstream `pupsourcing` repository.
+- This repository is the documentation website for `pupsourcing/core`; product source code lives in the upstream `core` repository.
 - Content source files are in `docs/*.md`.
 - `mkdocs.yml` defines site metadata, top-level nav, and markdown extensions.
 - The site theme is fully custom (`theme.name: null`, `custom_dir: custom_theme`):

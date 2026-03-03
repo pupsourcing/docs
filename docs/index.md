@@ -9,7 +9,7 @@ Event Sourcing infrastructure for Go that handles the complexity without creepin
 ### 1. Install
 
 ```bash
-go get github.com/getpup/pupsourcing
+go get github.com/pupsourcing/core
 ```
 
 Choose your database driver:
@@ -23,7 +23,7 @@ Generate database schema:
 
 ```bash
 # Generate SQL migrations for your database
-go run github.com/getpup/pupsourcing/cmd/migrate-gen -output migrations
+go run github.com/pupsourcing/core/cmd/migrate-gen -output migrations
 
 # Load the generated SQL into your database
 ```
@@ -32,8 +32,8 @@ go run github.com/getpup/pupsourcing/cmd/migrate-gen -output migrations
 
 ```go
 import (
-    "github.com/getpup/pupsourcing/es"
-    "github.com/getpup/pupsourcing/es/adapters/postgres"
+    "github.com/pupsourcing/core/es"
+    "github.com/pupsourcing/core/es/adapters/postgres"
 )
 
 // Create event store
@@ -76,9 +76,9 @@ for _, event := range stream.Events {
 
 ## Why Pupsourcing?
 
-**Mature Infrastructure** — Battle-tested event sourcing that handles persistence, concurrency, and projections without touching your domain logic.
+**Mature Infrastructure** — Battle-tested event sourcing that handles persistence, concurrency, and consumers without touching your domain logic.
 
-**Simple to Start** — Get running quickly with sensible defaults, then unlock powerful capabilities like partitioned projections and temporal queries.
+**Simple to Start** — Get running quickly with sensible defaults, then unlock powerful capabilities like auto-scaling workers and temporal queries.
 
 **Go Native** — Pure Go with idiomatic APIs. No annotations, no magic—just clean, explicit code.
 
@@ -88,5 +88,5 @@ for _, event := range stream.Events {
 
 - **[Getting Started](getting-started.md)** — Complete setup guide
 - **[Documentation](docs-overview.md)** — Deep dive into concepts and patterns
-- **[GitHub](https://github.com/getpup/pupsourcing)** — Source code and examples
-- **[Integration Testing](https://github.com/getpup/pupsourcing/tree/master/examples/integration-testing)** — Learn how to test projections
+- **[GitHub](https://github.com/pupsourcing/core)** — Source code and examples
+- **[Integration Testing](https://github.com/pupsourcing/core/tree/master/examples/integration-testing)** — Learn how to test consumers

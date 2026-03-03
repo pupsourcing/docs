@@ -39,7 +39,7 @@ type Logger interface {
 Logs append operations, read operations, and concurrency conflicts:
 
 ```go
-import "github.com/getpup/pupsourcing/es/adapters/postgres"
+import "github.com/pupsourcing/core/es/adapters/postgres"
 
 type MyLogger struct {
     logger *slog.Logger
@@ -63,20 +63,22 @@ config.Logger = &MyLogger{logger: slog.Default()}
 store := postgres.NewStore(config)
 ```
 
-### Projection Logging
+### Consumer Logging
 
-Logs processor lifecycle, batch progress, checkpoints, and errors:
+Logs worker and processor lifecycle, batch progress, checkpoints, and errors:
 
 ```go
 import (
-    "github.com/getpup/pupsourcing/es/projection"
-    "github.com/getpup/pupsourcing/es/adapters/postgres"
+    "github.com/pupsourcing/core/es/adapters/postgres"
+    "github.com/pupsourcing/core/es/worker"
 )
 
 store := postgres.NewStore(postgres.DefaultStoreConfig())
-config := projection.DefaultProcessorConfig()
-config.Logger = &MyLogger{logger: slog.Default()}
-processor := postgres.NewProcessor(db, store, &config)
+w := postgres.NewWorker(
+    db,
+    store,
+    worker.WithLogger(&MyLogger{logger: slog.Default()}),
+)
 ```
 
 ### Zero-Overhead Design
@@ -211,7 +213,7 @@ func toLogrusFields(keyvals []interface{}) logrus.Fields {
 }
 ```
 
-See the [with-logging example](https://github.com/getpup/pupsourcing/tree/master/examples/with-logging) for a complete working demonstration.
+See the [with-logging example](https://github.com/pupsourcing/core/tree/master/examples/with-logging) for a complete working demonstration.
 
 ## Distributed Tracing
 
@@ -266,16 +268,16 @@ func HandleRequest(ctx context.Context, store *postgres.Store) error {
 }
 ```
 
-### Propagating Trace Context in Projections
+### Propagating Trace Context in Consumers
 
-When processing events in projections, propagate the trace ID to maintain observability:
+When processing events in consumers, propagate the trace ID to maintain observability:
 
 ```go
-type TracedProjection struct {
+type TracedConsumer struct {
     tracer trace.Tracer
 }
 
-func (p *TracedProjection) Handle(ctx context.Context, tx *sql.Tx, event es.PersistedEvent) error {
+func (p *TracedConsumer) Handle(ctx context.Context, tx *sql.Tx, event es.PersistedEvent) error {
     // Extract trace ID from event if present
     if event.TraceID.Valid {
         traceID, err := trace.TraceIDFromHex(event.TraceID.String)
@@ -288,8 +290,8 @@ func (p *TracedProjection) Handle(ctx context.Context, tx *sql.Tx, event es.Pers
         }
     }
     
-    // Start a new span for projection processing
-    ctx, span := p.tracer.Start(ctx, "projection.handle",
+    // Start a new span for consumer processing
+    ctx, span := p.tracer.Start(ctx, "consumer.handle",
         trace.WithAttributes(
             attribute.String("event.type", event.EventType),
             attribute.String("aggregate.type", event.AggregateType),
@@ -333,19 +335,21 @@ followUpEvent := es.Event{
 ```
 
 This creates a clear chain of causality:
+
 - `CorrelationID` links all events in the same business transaction
 - `CausationID` shows which event triggered this one
 
 ## Metrics
 
-For metrics integration with Prometheus and other monitoring systems, see the [Deployment Guide's Monitoring section](./deployment.md#monitoring).
+For metrics integration with Prometheus and other monitoring systems, see the [Deployment Guide](./deployment.md).
 
 Key metrics to track:
+
 - Event append rate
 - Event append latency
-- Projection lag (events behind)
-- Projection processing rate
-- Projection errors
+- Consumer lag (events behind)
+- Consumer processing rate
+- Consumer errors
 
 ## Best Practices
 
@@ -381,24 +385,24 @@ Key metrics to track:
 
 ### Metrics
 
-1. **Monitor projection lag**
-   - Alert when projections fall too far behind
+1. **Monitor consumer lag**
+   - Alert when consumers fall too far behind
    - Critical for user-facing read models
 
 2. **Track error rates**
-   - Monitor projection failures
+   - Monitor consumer failures
    - Alert on sustained error conditions
 
 3. **Measure latencies**
    - P50, P95, P99 for event appends
-   - Projection processing time per event
+   - Consumer processing time per event
 
 ## Troubleshooting
 
-### High Projection Lag
+### High Consumer Lag
 
 Check:
-1. Projection processing performance (slow queries?)
+1. Consumer processing performance (slow queries?)
 2. Batch size configuration
 3. Need for more workers (horizontal scaling)
 4. Database connection pool size
@@ -410,15 +414,15 @@ The logger will show these as ERROR level with aggregate details. Common causes:
 2. Retry logic without backoff
 3. Race conditions in application code
 
-### Missing Events in Projections
+### Missing Events in Consumers
 
 Use logging to verify:
 1. Events are being appended (check store logs)
-2. Projection is processing (check processor logs)
-3. Partition key is correct (for partitioned projections)
+2. Consumer is processing (check worker/processor logs)
+3. Segment ownership is healthy (`consumer_segments` ownership)
 
 ## Related Documentation
 
 - [Deployment Guide](./deployment.md) - Production deployment and monitoring
-- [Examples](https://github.com/getpup/pupsourcing/tree/master/examples/with-logging) - Complete logging example
-- [API Reference](./api-reference.md) - Full API documentation
+- [Examples](https://github.com/pupsourcing/core/tree/master/examples/with-logging) - Complete logging example
+- [Consumers](./consumers.md) - Consumer processing patterns

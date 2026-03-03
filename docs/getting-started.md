@@ -15,24 +15,18 @@ This guide covers installation, setup, and creating your first event-sourced app
 ## Prerequisites
 
 - Go 1.23 or later
-- PostgreSQL 12+ (or SQLite for development/testing)
+- PostgreSQL 12+
 
 ## Installation
 
 ```bash
-go get github.com/getpup/pupsourcing
+go get github.com/pupsourcing/core
 ```
 
 Choose a database driver:
 ```bash
-# PostgreSQL (recommended for production)
+# PostgreSQL
 go get github.com/lib/pq
-
-# SQLite (suitable for development/testing)
-go get modernc.org/sqlite
-
-# MySQL/MariaDB
-go get github.com/go-sql-driver/mysql
 ```
 
 ## Quick Start
@@ -42,19 +36,20 @@ go get github.com/go-sql-driver/mysql
 Generate SQL migrations for your chosen database:
 
 ```bash
-go run github.com/getpup/pupsourcing/cmd/migrate-gen -output migrations
+go run github.com/pupsourcing/core/cmd/migrate-gen -output migrations
 ```
 
 Or use `go generate`:
 
 ```go
-//go:generate go run github.com/getpup/pupsourcing/cmd/migrate-gen -output migrations
+//go:generate go run github.com/pupsourcing/core/cmd/migrate-gen -output migrations
 ```
 
 This creates SQL migration files with:
+
 - Events table with proper indexes
 - Aggregate heads table for version tracking
-- Projection checkpoints table
+- Consumer checkpoints table
 
 ### 2. Apply Schema Migrations
 
@@ -80,7 +75,7 @@ defer db.Close()
 
 ```go
 import (
-    "github.com/getpup/pupsourcing/es/adapters/postgres"
+    "github.com/pupsourcing/core/es/adapters/postgres"
 )
 
 store := postgres.NewStore(postgres.DefaultStoreConfig())
@@ -90,7 +85,7 @@ store := postgres.NewStore(postgres.DefaultStoreConfig())
 
 ```go
 import (
-    "github.com/getpup/pupsourcing/es"
+    "github.com/pupsourcing/core/es"
     "github.com/google/uuid"
     "time"
 )
@@ -161,100 +156,98 @@ for _, event := range stream.Events {
 }
 ```
 
-### 7. Create a Projection
+### 7. Create a Consumer
 
-Create a scoped projection that only receives User events:
+Create a scoped consumer that processes only `User` events in the `Identity` bounded context:
 
 ```go
 import (
+    "context"
     "database/sql"
-    "github.com/getpup/pupsourcing/es/projection"
+    "fmt"
+
+    "github.com/pupsourcing/core/es"
 )
 
-type UserCountProjection struct {
-    db *sql.DB
-}
+type UserCountConsumer struct{}
 
-func (p *UserCountProjection) Name() string {
+func (p *UserCountConsumer) Name() string {
     return "user_count"
 }
 
-// AggregateTypes makes this a scoped projection
-func (p *UserCountProjection) AggregateTypes() []string {
-    return []string{"User"}  // Only receives User events
+func (p *UserCountConsumer) AggregateTypes() []string {
+    return []string{"User"}
 }
 
-// BoundedContexts filters by context - receives only Identity context events
-func (p *UserCountProjection) BoundedContexts() []string {
+func (p *UserCountConsumer) BoundedContexts() []string {
     return []string{"Identity"}
 }
 
-func (p *UserCountProjection) Handle(ctx context.Context, tx *sql.Tx, event es.PersistedEvent) error {
-    if event.EventType == "UserCreated" {
-        // Use the processor's transaction for atomic updates
-        // This ensures the read model and checkpoint are updated together
-        _, err := tx.ExecContext(ctx,
-            "INSERT INTO user_stats (metric, value) VALUES ('total_users', 1) "+
-            "ON CONFLICT (metric) DO UPDATE SET value = user_stats.value + 1")
-        if err != nil {
-            return err
-        }
-        
-        // Query current count for logging
-        var count int
-        err = tx.QueryRowContext(ctx, 
-            "SELECT value FROM user_stats WHERE metric = 'total_users'").Scan(&count)
-        if err == nil {
-            fmt.Printf("User count: %d\n", count)
-        }
+func (p *UserCountConsumer) Handle(ctx context.Context, tx *sql.Tx, event es.PersistedEvent) error {
+    if event.EventType != "UserCreated" {
+        return nil
     }
+
+    _, err := tx.ExecContext(ctx,
+        "INSERT INTO user_stats (metric, value) VALUES ('total_users', 1) "+
+            "ON CONFLICT (metric) DO UPDATE SET value = user_stats.value + 1")
+    if err != nil {
+        return err
+    }
+
+    var count int
+    err = tx.QueryRowContext(ctx,
+        "SELECT value FROM user_stats WHERE metric = 'total_users'").Scan(&count)
+    if err == nil {
+        fmt.Printf("User count: %d\n", count)
+    }
+
     return nil
 }
 ```
 
-### 8. Run the Projection
+### 8. Run the Consumer
 
 ```go
-proj := &UserCountProjection{}
-config := projection.DefaultProcessorConfig()
+import (
+    "context"
 
-// Use adapter-specific processor
+    "github.com/pupsourcing/core/es/adapters/postgres"
+)
+
+cons := &UserCountConsumer{}
 store := postgres.NewStore(postgres.DefaultStoreConfig())
-processor := postgres.NewProcessor(db, store, &config)
+w := postgres.NewWorker(db, store)
 
 ctx, cancel := context.WithCancel(context.Background())
 defer cancel()
 
-// Run until context is cancelled
-err := processor.Run(ctx, proj)
+err := w.Run(ctx, cons)
 ```
 
-!!! tip "Production recommendation (v1.4.0+) for multiple projections"
-    If you run multiple continuous projections in the same process, start a shared `projection.Dispatcher` and set `config.WakeupSource = dispatcher` for each processor.  
-    This reduces redundant idle polling and database load, while fallback polling still guarantees catch-up correctness.
-    
-    See the runnable example: [`examples/dispatcher-runner`](https://github.com/getpup/pupsourcing/tree/master/examples/dispatcher-runner).
+!!! tip "Testing Consumers"
+    For integration tests and deterministic catch-up runs, use `BasicProcessor` with `RunModeOneOff`:
 
-!!! tip "Testing Projections"
-    When writing integration tests for projections, use `RunModeOneOff` to process events synchronously:
-    
     ```go
-    config := projection.DefaultProcessorConfig()
-    config.RunMode = projection.RunModeOneOff
+    cfg := consumer.DefaultBasicProcessorConfig()
+    cfg.RunMode = consumer.RunModeOneOff
+
+    p := postgres.NewBasicProcessor(db, store, cfg)
+    err := p.Run(ctx, &UserCountConsumer{})
     ```
-    
-    This allows your tests to process all events and exit cleanly, making assertions straightforward. See the [One-Off Projection Processing](./projections.md#one-off-projection-processing) guide for complete examples.
+
+    See the [One-Off Consumer Processing](./consumers.md#one-off-consumer-processing) section for full examples.
 
 ## Complete Example
 
-See the [complete working example](https://github.com/getpup/pupsourcing/tree/master/examples/single-worker/main.go) that ties everything together.
+See the [complete working example](https://github.com/pupsourcing/core/tree/master/examples/worker/main.go) that ties everything together.
 
 ## Next Steps
 
 - Learn [Core Concepts](./core-concepts.md) to understand event sourcing with pupsourcing
-- Explore [Projections & Scaling](./scaling.md) to build read models
-- See [Scaling Guide](./scaling.md) for production deployments
-- Browse [Examples](https://github.com/getpup/pupsourcing/tree/master/examples) for more patterns
+- Learn [Consumers](./consumers.md) to build read models and integration handlers
+- Read [Deployment](./deployment.md) for production setup guidance
+- Browse [Examples](https://github.com/pupsourcing/core/tree/master/examples) for more patterns
 
 ## Common Patterns
 
@@ -332,7 +325,7 @@ Verify migrations were applied:
 ```shell
 \d events
 \d aggregate_heads
-\d projection_checkpoints
+\d consumer_checkpoints
 ```
 
 ### Event Not Appearing
@@ -344,20 +337,20 @@ store.Append(ctx, tx, es.NoStream(), events)
 tx.Commit() // Don't forget this!
 ```
 
-### Projection Not Processing
+### Consumer Not Processing
 
 Verify events exist:
 ```sql
 SELECT COUNT(*) FROM events;
 ```
 
-Check projection checkpoint:
+Check consumer checkpoint:
 ```sql
-SELECT * FROM projection_checkpoints WHERE projection_name = 'your_projection';
+SELECT * FROM consumer_checkpoints WHERE consumer_name = 'your_consumer';
 ```
 
 ## Resources
 
 - [Core Concepts](./core-concepts.md) - Understand the fundamentals
-- [API Reference](./api-reference.md) - Complete API documentation
-- [Examples](https://github.com/getpup/pupsourcing/tree/master/examples) - Working code examples
+- [Consumers](./consumers.md) - Consumer and projection patterns
+- [Examples](https://github.com/pupsourcing/core/tree/master/examples) - Working code examples

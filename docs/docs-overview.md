@@ -28,7 +28,7 @@ In event sourcing, you never update or delete data. Instead, you:
 1. **Write events** when something happens (UserRegistered, EmailChanged, OrderPlaced)
 2. **Store events** in an append-only log (events can't be changed or deleted)
 3. **Read events** and replay them to reconstruct the current state
-4. **Build projections** (read models) by processing events into formats optimized for querying
+4. **Build consumers** (including projections/read models) by processing events into query-friendly outputs
 
 ### The Traditional Approach vs Event Sourcing
 
@@ -120,7 +120,7 @@ Order {
 
 This is a common question for newcomers: "If everything is stored as events, how do I get a simple list of orders?"
 
-The answer is **projections**. You process events to build read models—tables optimized for queries:
+The answer is **consumers**. A projection is a consumer that builds read models optimized for queries:
 
 **Events (append-only):**
 ```
@@ -131,7 +131,7 @@ The answer is **projections**. You process events to build read models—tables 
 5. OrderDelivered    { id: 2 }
 ```
 
-**Projection (orders_view table):**
+**Read model built by a projection consumer (`orders_view` table):**
 ```
 Process each event and update a regular database table:
 ┌────┬────────┬──────────────┬────────┐
@@ -144,7 +144,7 @@ Process each event and update a regular database table:
 
 Now you can query: `SELECT * FROM orders_view WHERE status = 'shipped'` - fast and simple!
 
-**Key insight:** You keep both the events (for history and replaying) and projections (for fast queries). The projections are built by processing events and can be rebuilt at any time.
+**Key insight:** You keep both the events (for history and replaying) and consumer outputs (for fast queries and integrations). Projection read models are built from events and can be rebuilt at any time.
 
 ### Why Event Sourcing?
 
@@ -162,13 +162,13 @@ Event sourcing provides powerful capabilities that are difficult or impossible w
 
 **✅ Flexible Read Models**
 - Build new views from existing events without migrations
-- Multiple projections from the same event stream
+- Multiple consumers from the same event stream
 - Add new read models without touching write side
 
 **✅ Event Replay**
 - Fix bugs by replaying events with corrected logic
 - Test new features on production data
-- Generate new projections from historical events
+- Generate new read models from historical events
 
 **✅ Business Intelligence**
 - Rich analytics from complete event history
@@ -178,17 +178,18 @@ Event sourcing provides powerful capabilities that are difficult or impossible w
 ### When to Use Event Sourcing
 
 **✅ Great fit:**
+
 - Systems requiring audit trails (finance, healthcare, legal)
 - Complex business domains with rich behavior
 - Applications needing temporal queries
 - Microservices publishing domain events
 - Multiple read models from the same data
 
-**⚠️ Consider carefully:**
-- Simple CRUD applications (may be overkill)
-- Prototypes without event sourcing requirements
-- Teams new to event sourcing (learning curve)
-- Strict low-latency requirements everywhere
+**ℹ️ Consideration:**
+
+- Event sourcing usually introduces eventual consistency between writes and read models, so confirm brief staleness is acceptable for key workflows.
+- It comes with a learning curve (event modeling, replay, projections, and operations), especially for teams adopting it for the first time.
+- Familiarity with bounded contexts and Domain-Driven Design (DDD) generally improves outcomes by making boundaries and event semantics clearer.
 
 ---
 
@@ -211,25 +212,13 @@ type UserCreated struct {
 // Pure domain logic
 ```
 
-### 🔌 Database Flexibility
+### 🔌 PostgreSQL Native
 
-Support for multiple databases with the same API:
-
-- **PostgreSQL** (recommended for production)
-- **SQLite** (perfect for testing and development)
-- **MySQL/MariaDB**
-
-Switch databases without changing your application code:
+Built for PostgreSQL with efficient storage and querying:
 
 ```go
 // PostgreSQL
 store := postgres.NewStore(postgres.DefaultStoreConfig())
-
-// SQLite
-store := sqlite.NewStore(sqlite.DefaultStoreConfig())
-
-// MySQL
-store := mysql.NewStore(mysql.DefaultStoreConfig())
 ```
 
 ### 🏗️ Bounded Context Support
@@ -260,12 +249,12 @@ result, err := store.Append(ctx, tx,
 // If another process already wrote version 4, this fails
 ```
 
-### 📊 Powerful Projections
+### 📊 Powerful Consumers
 
 Transform events into query-optimized read models:
 
 ```go
-// Scoped projection - only User events from Identity context
+// Scoped consumer (projection) - only User events from Identity context
 type UserReadModel struct{}
 
 func (p *UserReadModel) AggregateTypes() []string {
@@ -277,7 +266,7 @@ func (p *UserReadModel) BoundedContexts() []string {
 }
 
 func (p *UserReadModel) Handle(ctx context.Context, tx *sql.Tx, event es.PersistedEvent) error {
-    // Update your read model using the processor's transaction
+    // Update your read model using the provided transaction
     switch event.EventType {
     case "UserCreated":
         // Use tx for atomic updates
@@ -294,15 +283,11 @@ func (p *UserReadModel) Handle(ctx context.Context, tx *sql.Tx, event es.Persist
 
 ### 📈 Horizontal Scaling
 
-Built-in support for scaling projections across multiple workers:
+Built-in support for auto-scaling consumers across multiple workers:
 
 ```go
-// Partition projections across 4 workers
-config := projection.ProcessorConfig{
-    PartitionKey:    0,  // This worker handles partition 0
-    TotalPartitions: 4,
-}
-processor := postgres.NewProcessor(db, store, &config)
+w := postgres.NewWorker(db, store, worker.WithTotalSegments(4))
+err := w.Run(ctx, &UserReadModel{}, &OrderProjection{})
 ```
 
 ### 🛠️ Code Generation
@@ -311,7 +296,7 @@ Optional type-safe event mapping:
 
 ```bash
 # Generate strongly-typed event mappers
-go run github.com/getpup/pupsourcing/cmd/eventmap-gen \
+go run github.com/pupsourcing/core/cmd/eventmap-gen \
   -input internal/domain/events \
   -output internal/infrastructure/generated
 ```
@@ -329,18 +314,18 @@ go run github.com/getpup/pupsourcing/cmd/eventmap-gen \
 ### Installation
 
 ```bash
-go get github.com/getpup/pupsourcing
+go get github.com/pupsourcing/core
 
-# Choose your database driver
-go get github.com/lib/pq  # PostgreSQL
+# PostgreSQL driver
+go get github.com/lib/pq
 ```
 
 ### Your First Event
 
 ```go
 import (
-    "github.com/getpup/pupsourcing/es"
-    "github.com/getpup/pupsourcing/es/adapters/postgres"
+    "github.com/pupsourcing/core/es"
+    "github.com/pupsourcing/core/es/adapters/postgres"
     "github.com/google/uuid"
 )
 
@@ -403,42 +388,33 @@ Start here if you're new to pupsourcing:
   - Database schema generation
   - Creating and storing your first event
   - Reading events back
-  - Building a simple projection
+  - Building a simple consumer
 
 ### Core Concepts
 Understand the fundamentals:
 
 - **[Core Concepts](core-concepts.md)** - Deep dive into event sourcing principles with pupsourcing
   - Event sourcing fundamentals
-  - Core components (Events, Aggregates, Event Store, Projections)
+  - Core components (Events, Aggregates, Event Store, Consumers)
   - Key concepts (Optimistic Concurrency, Global Position, Idempotency)
   - Design principles (Library vs Framework, Explicit Dependencies)
   - Common patterns (Read-Your-Writes, Event Upcasting, Aggregate Reconstruction)
 
-### Database Adapters
-Choose and configure your database:
+### Database Adapter
+Configure your PostgreSQL database:
 
-- **[Database Adapters](adapters.md)** - PostgreSQL, SQLite, and MySQL adapter documentation
-  - PostgreSQL (production-ready, recommended)
-  - SQLite (embedded, perfect for testing)
-  - MySQL/MariaDB (production-ready)
-  - Adapter comparison and migration strategies
+- **[Database Adapter](adapters.md)** - PostgreSQL adapter documentation
+  - PostgreSQL (production-ready)
+  - Configuration options and performance tuning
 
-### Projections and Scaling
-Build read models and scale your system:
+### Consumers
+Build read models and integration handlers:
 
-- **[Projections](projections.md)** - Building and managing projections
-  - Scoped vs Global projections
-  - Basic implementation
-  - Idempotency patterns
-  
-- **[Scaling](scaling.md)** - Horizontal scaling patterns for projections
-  - When and how to scale
-  - Hash-based partitioning
-  - Running multiple projections
-  - Performance tuning (batch size, connection pooling, poll interval)
-  - Production patterns (gradual scaling, prioritization, hot/cold separation)
-  - Advanced topics (projection rebuilding, database partitioning)
+- **[Consumers](consumers.md)** - Building and running consumers
+  - Consumer interface and scoped consumers
+  - Projections as a specific consumer type
+  - Worker API for continuous workloads
+  - One-off processing with BasicProcessor
 
 ### Code Generation
 Type-safe event mapping:
@@ -454,11 +430,11 @@ Type-safe event mapping:
 Deploy and monitor:
 
 - **[Deployment](deployment.md)** - Production deployment patterns and operational best practices
-  - Deployment patterns (Docker Compose, Kubernetes, systemd)
-  - Configuration management
+  - Worker-first deployment approach
+  - Auto-scaling behavior and segment ownership
+  - Deployment examples
   - Monitoring and metrics
   - Graceful shutdown
-  - Security considerations
   - Troubleshooting
 
 - **[Observability](observability.md)** - Logging, tracing, and monitoring
@@ -466,16 +442,6 @@ Deploy and monitor:
   - Distributed tracing (TraceID, CorrelationID, CausationID)
   - Metrics integration (Prometheus examples)
   - Best practices
-
-### API Reference
-Complete API documentation:
-
-- **[API Reference](api-reference.md)** - Complete API documentation
-  - Core types (Event, PersistedEvent, Stream, ExpectedVersion)
-  - Event Store interface
-  - Projection interfaces
-  - PostgreSQL adapter
-  - Error types
 
 ### About
 Learn more about the project:
@@ -489,35 +455,28 @@ Learn more about the project:
 ### For Beginners
 1. Start with [Getting Started](getting-started.md)
 2. Understand [Core Concepts](core-concepts.md)
-3. Explore [Examples](https://github.com/getpup/pupsourcing/tree/master/examples)
+3. Explore [Examples](https://github.com/pupsourcing/core/tree/master/examples)
 
 ### For Production
-1. Review [Database Adapters](adapters.md) and choose your database
-2. Plan your [Scaling Strategy](scaling.md)
+1. Review [Database Adapter](adapters.md) and configure PostgreSQL
+2. Implement [Consumers](consumers.md)
 3. Set up [Observability](observability.md)
 4. Follow [Deployment Guide](deployment.md)
 
 ### For Advanced Users
 1. Implement [Event Mapping Code Generation](eventmap-gen.md)
-2. Study [Scaling Patterns](scaling.md)
-3. Review [API Reference](api-reference.md)
+2. Tune worker configuration in [Deployment](deployment.md)
+3. Build specialized consumers in [Consumers](consumers.md)
 
 ---
 
 ## Examples Repository
 
-The [pupsourcing repository](https://github.com/getpup/pupsourcing) includes comprehensive working examples:
+The [pupsourcing repository](https://github.com/pupsourcing/core) includes comprehensive working examples:
 
-- **basic** - Complete PostgreSQL example with projections
-- **sqlite-basic** - SQLite embedded database example
-- **mysql-basic** - MySQL/MariaDB example
-- **single-worker** - Single projection worker
-- **multiple-projections** - Running multiple projections together
-- **dispatcher-runner** - Shared dispatcher + runner wiring for lower idle polling load
-- **worker-pool** - Worker pool with partitioned projections
-- **partitioned** - Separate processes with partitioning
-- **scaling** - Dynamic scaling demonstration
-- **scoped-projections** - Scoped projection filtering
+- **basic** - Complete PostgreSQL example
+- **worker** - Worker API with segment-based auto-scaling
+- **integration-testing** - One-off processing pattern for tests
 - **stop-resume** - Checkpoint management and resumption
 - **with-logging** - Observability integration
 - **eventmap-codegen** - Type-safe event mapping generation
@@ -528,9 +487,9 @@ Each example includes a README with setup instructions and explanation of concep
 
 ## Community and Support
 
-- **GitHub Repository**: [github.com/getpup/pupsourcing](https://github.com/getpup/pupsourcing)
-- **Issues & Discussions**: [GitHub Issues](https://github.com/getpup/pupsourcing/issues)
-- **Documentation**: [getpup.github.io/pupsourcing-website](https://getpup.github.io/pupsourcing-website)
+- **GitHub Repository**: [github.com/pupsourcing/core](https://github.com/pupsourcing/core)
+- **Issues & Discussions**: [GitHub Issues](https://github.com/pupsourcing/core/issues)
+- **Documentation**: [pupsourcing.gopup.dev](https://pupsourcing.gopup.dev)
 
 ---
 
@@ -538,9 +497,9 @@ Each example includes a README with setup instructions and explanation of concep
 
 - **[Getting Started](getting-started.md)** - Complete setup guide and first steps
 - **[Core Concepts](core-concepts.md)** - Deep dive into event sourcing principles
-- **[Database Adapters](adapters.md)** - Choosing and configuring your database
-- **[Scaling & Projections](scaling.md)** - Building read models and horizontal scaling
-- **[API Reference](api-reference.md)** - Complete API documentation
+- **[Database Adapter](adapters.md)** - Configuring your PostgreSQL database
+- **[Consumers](consumers.md)** - Building read models and integration consumers
+- **[Deployment](deployment.md)** - Worker-first production guidance
 
 ---
 
@@ -558,4 +517,4 @@ Pupsourcing is designed for production use with:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](https://github.com/getpup/pupsourcing/blob/main/LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/pupsourcing/core/blob/master/LICENSE) file for details.
