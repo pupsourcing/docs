@@ -66,83 +66,92 @@ Forwarder worker (separate process)
 Recommended write-time sequence:
 
 1. Begin SQL transaction.
-2. Persist business state/events.
+2. Append domain event(s) with `store.Append(...)`.
 3. Create Watermill SQL publisher bound to that `*sql.Tx`.
 4. Decorate publisher with `forwarder.NewPublisher(...)`.
 5. Publish integration message(s).
 6. Commit transaction.
 7. On error, rollback (state and staged messages are both reverted).
 
-### Transaction-bound publish snippet (Go)
+### Transaction-bound append + publish snippet (Go)
+
+Assume the standard setup from Getting Started already exists:
+
+- `db *sql.DB`
+- `store := postgres.NewStore(postgres.DefaultStoreConfig())`
 
 ```go
-package outbox
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+	return err
+}
+defer tx.Rollback()
 
-import (
-	"context"
-	stdsql "database/sql"
-	"encoding/json"
+domainPayload, err := json.Marshal(map[string]string{
+	"email": email,
+})
+if err != nil {
+	return err
+}
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/components/forwarder"
-	"github.com/ThreeDotsLabs/watermill/message"
-	wmsql "github.com/ThreeDotsLabs/watermill-sql/v4/pkg/sql"
+events := []es.Event{
+	{
+		BoundedContext: "Identity",
+		AggregateType:  "User",
+		AggregateID:    userID,
+		EventID:        uuid.New(),
+		EventType:      "UserRegistered",
+		EventVersion:   1,
+		Payload:        domainPayload,
+		Metadata:       []byte(`{}`),
+		CreatedAt:      time.Now(),
+	},
+}
+
+// 1) Persist domain events with pupsourcing event store.
+if _, err := store.Append(ctx, tx, es.NoStream(), events); err != nil {
+	return err
+}
+
+sqlPublisher, err := wmsql.NewPublisher(
+	wmsql.TxFromStdSQL(tx),
+	wmsql.PublisherConfig{
+		SchemaAdapter: wmsql.DefaultPostgreSQLSchema{},
+	},
+	watermill.NopLogger{},
 )
+if err != nil {
+	return err
+}
+defer sqlPublisher.Close()
 
-func PlaceOrder(ctx context.Context, db *stdsql.DB, orderID string) error {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+outboxPublisher := forwarder.NewPublisher(sqlPublisher, forwarder.PublisherConfig{
+	ForwarderTopic: "outbox.forwarder",
+})
 
-	if err := stageOrderPlaced(ctx, tx, orderID); err != nil {
-		return err
-	}
-
-	return tx.Commit()
+integrationPayload, err := json.Marshal(map[string]string{
+	"user_id": userID,
+	"email":   email,
+})
+if err != nil {
+	return err
 }
 
-func stageOrderPlaced(ctx context.Context, tx *stdsql.Tx, orderID string) error {
-	// Replace with your write-side SQL.
-	if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'placed' WHERE id = $1", orderID); err != nil {
-		return err
-	}
+msg := message.NewMessage(watermill.NewUUID(), integrationPayload)
+msg.Metadata.Set("event_type", "UserRegistered")
+msg.Metadata.Set("aggregate_id", userID)
 
-	logger := watermill.NopLogger{}
-
-	sqlPublisher, err := wmsql.NewPublisher(
-		wmsql.TxFromStdSQL(tx),
-		wmsql.PublisherConfig{
-			SchemaAdapter: wmsql.DefaultPostgreSQLSchema{},
-		},
-		logger,
-	)
-	if err != nil {
-		return err
-	}
-	defer sqlPublisher.Close()
-
-	outboxPublisher := forwarder.NewPublisher(sqlPublisher, forwarder.PublisherConfig{
-		ForwarderTopic: "outbox.forwarder",
-	})
-
-	payload, err := json.Marshal(map[string]string{
-		"order_id": orderID,
-	})
-	if err != nil {
-		return err
-	}
-
-	msg := message.NewMessage(watermill.NewUUID(), payload)
-	msg.Metadata.Set("event_type", "OrderPlaced")
-
-	return outboxPublisher.Publish("orders.integration.v1", msg)
+// 2) Stage integration message in SQL outbox, still in the same tx.
+if err := outboxPublisher.Publish("identity.user.registered.v1", msg); err != nil {
+	return err
 }
+
+return tx.Commit()
 ```
 
 !!! note
-    Create one SQL publisher per transaction and bind it to the active `*sql.Tx`.
+    `store.Append(...)` and `outboxPublisher.Publish(...)` share the same `*sql.Tx`.
+    If publish fails, rollback removes both the domain append and staged outbox message.
 
 ## Forwarding to RabbitMQ (example)
 

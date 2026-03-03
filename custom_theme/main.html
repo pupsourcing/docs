@@ -33,7 +33,14 @@
       <button class="mobile-menu-toggle" onclick="toggleMobileMenu()" aria-label="Toggle menu">☰</button>
       <nav class="nav desktop-nav" id="mainNav">
         {% for nav_item in nav %}
-          <a href="{{ nav_item.url|url }}" {% if nav_item.active %}class="active"{% endif %}>{{ nav_item.title }}</a>
+          {% if nav_item.url %}
+            {% set nav_href = nav_item.url %}
+          {% elif nav_item.children and nav_item.children|length > 0 %}
+            {% set nav_href = nav_item.children[0].url %}
+          {% else %}
+            {% set nav_href = '' %}
+          {% endif %}
+          <a href="{% if nav_href %}{{ nav_href|url }}{% else %}#{% endif %}" {% if nav_item.active %}class="active"{% endif %}>{{ nav_item.title }}</a>
         {% endfor %}
         {% if config.repo_url %}
           <a href="{{ config.repo_url }}">GitHub</a>
@@ -42,7 +49,14 @@
       <!-- Mobile combined menu -->
       <nav class="nav mobile-nav" id="mobileNav">
         {% for nav_item in nav %}
-          <a href="{{ nav_item.url|url }}" {% if nav_item.active %}class="active"{% endif %}>{{ nav_item.title }}</a>
+          {% if nav_item.url %}
+            {% set nav_href = nav_item.url %}
+          {% elif nav_item.children and nav_item.children|length > 0 %}
+            {% set nav_href = nav_item.children[0].url %}
+          {% else %}
+            {% set nav_href = '' %}
+          {% endif %}
+          <a href="{% if nav_href %}{{ nav_href|url }}{% else %}#{% endif %}" {% if nav_item.active %}class="active"{% endif %}>{{ nav_item.title }}</a>
         {% endfor %}
         {% if config.repo_url %}
           <a href="{{ config.repo_url }}">GitHub</a>
