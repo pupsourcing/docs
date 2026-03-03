@@ -416,15 +416,6 @@ Build read models and integration handlers:
   - Worker API for continuous workloads
   - One-off processing with BasicProcessor
 
-### Integration Delivery
-Ship integration events safely:
-
-- **[Outbox](outbox.md)** - Transaction-safe delivery with Watermill SQL + Forwarder
-  - Dual-write failure modes and transactional staging
-  - SQL -> RabbitMQ forwarding architecture
-  - At-least-once delivery and idempotency requirements
-  - Retry vs poison queue handling and operations
-
 ### Code Generation
 Type-safe event mapping:
 
@@ -434,6 +425,15 @@ Type-safe event mapping:
   - Versioned events (schema evolution)
   - Clean architecture integration
   - Repository adapter pattern
+
+### Integration Delivery
+Ship integration events safely:
+
+- **[Outbox](outbox.md)** - Transaction-safe delivery with Watermill SQL + Forwarder
+  - Dual-write failure modes and transactional staging
+  - SQL -> RabbitMQ forwarding architecture
+  - At-least-once delivery and idempotency requirements
+  - Retry vs poison queue handling and operations
 
 ### Production Operations
 Deploy and monitor:

@@ -28,7 +28,7 @@ This closes the classic dual-write gap:
 - **Write succeeds, publish fails** -> state changed but no event delivered.
 - **Publish succeeds, write fails** -> event delivered for state that does not exist.
 
-The outbox pattern is the practical alternative to 2PC for most systems.
+The outbox pattern is a practical alternative to coordinating a distributed two-phase commit (2PC) across your database and broker.
 
 ## Why use outbox with event-sourced systems?
 
@@ -73,12 +73,13 @@ Recommended write-time sequence:
 6. Commit transaction.
 7. On error, rollback (state and staged messages are both reverted).
 
-### Transaction-bound append + publish snippet (Go)
+### Transaction-bound append + publish example
 
 Assume the standard setup from Getting Started already exists:
 
 - `db *sql.DB`
 - `store := postgres.NewStore(postgres.DefaultStoreConfig())`
+- your domain/application layer already prepared `events []es.Event` (including event payloads)
 
 ```go
 tx, err := db.BeginTx(ctx, nil)
@@ -87,26 +88,8 @@ if err != nil {
 }
 defer tx.Rollback()
 
-domainPayload, err := json.Marshal(map[string]string{
-	"email": email,
-})
-if err != nil {
-	return err
-}
-
-events := []es.Event{
-	{
-		BoundedContext: "Identity",
-		AggregateType:  "User",
-		AggregateID:    userID,
-		EventID:        uuid.New(),
-		EventType:      "UserRegistered",
-		EventVersion:   1,
-		Payload:        domainPayload,
-		Metadata:       []byte(`{}`),
-		CreatedAt:      time.Now(),
-	},
-}
+// Assume events are prepared earlier by your domain logic.
+// Example: events contains one or more UserRegistered-related es.Event entries.
 
 // 1) Persist domain events with pupsourcing event store.
 if _, err := store.Append(ctx, tx, es.NoStream(), events); err != nil {
@@ -129,10 +112,17 @@ outboxPublisher := forwarder.NewPublisher(sqlPublisher, forwarder.PublisherConfi
 	ForwarderTopic: "outbox.forwarder",
 })
 
-integrationPayload, err := json.Marshal(map[string]string{
-	"user_id": userID,
-	"email":   email,
-})
+type UserRegisteredIntegration struct {
+	UserID string `json:"user_id"`
+	Email  string `json:"email"`
+}
+
+integrationEvent := UserRegisteredIntegration{
+	UserID: userID,
+	Email:  email,
+}
+
+integrationPayload, err := json.Marshal(integrationEvent)
 if err != nil {
 	return err
 }
@@ -157,7 +147,7 @@ return tx.Commit()
 
 Run forwarding as a dedicated worker process so broker outages or retries do not block request paths.
 
-### Forwarder worker wiring snippet (Go)
+### Forwarder worker wiring example
 
 ```go
 package outboxworker
