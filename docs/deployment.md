@@ -181,6 +181,7 @@ w := postgres.NewWorker(db, store,
     worker.WithBatchSize(200),
     worker.WithPollInterval(500*time.Millisecond),
     worker.WithMaxPollInterval(30*time.Second),
+    worker.WithMaxPostBatchPause(100*time.Millisecond),
     worker.WithWakeupJitter(100*time.Millisecond),
     worker.WithHeartbeatInterval(5*time.Second),
     worker.WithStaleThreshold(30*time.Second),
@@ -200,6 +201,9 @@ Option meanings and tradeoffs:
 - **MaxPollInterval**: Upper bound for idle backoff between polls. `30s` keeps idle load near zero.
   If you use LISTEN/NOTIFY (see [Wakeup Sources](consumers.md#wakeup-sources)), idle polling almost
   never fires, making this less critical.
+- **MaxPostBatchPause**: Maximum adaptive pause after successful non-empty batches in continuous mode.
+  Under sustained full batches the pause grows, then shrinks/resets as load cools, capped by this value.
+  Start with the default `100ms`; set `<= 0` to disable.
 - **WakeupJitter**: Random jitter added to segment wakeups to spread load. `100ms` prevents
   all segments from hitting the database simultaneously when a notification arrives.
 - **HeartbeatInterval**: Frequency of worker heartbeat updates in `consumer_workers`. `5s` is the
