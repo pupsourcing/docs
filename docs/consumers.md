@@ -148,6 +148,7 @@ w := postgres.NewWorker(db, store,
     worker.WithBatchSize(200),                   // Processes up to 200 events per fetch.
     worker.WithPollInterval(500*time.Millisecond), // Base polling interval between event checks.
     worker.WithMaxPollInterval(30*time.Second),  // Backs off polling to reduce idle DB load.
+    worker.WithMaxPostBatchPause(100*time.Millisecond), // Caps adaptive post-batch pause under sustained load.
     worker.WithHeartbeatInterval(5*time.Second), // Reports liveness while owning segments.
     worker.WithStaleThreshold(30*time.Second),   // Lets others reclaim segments from dead workers.
     worker.WithRebalanceInterval(10*time.Second), // Rebalances segment ownership across workers.
@@ -157,6 +158,8 @@ err := w.Run(ctx, &UserReadModel{}, &OrderProjection{})
 ```
 
 `TotalSegments` defines the parallelism ceiling per consumer. Start with 4 and increase only when you have clear evidence of bottlenecks. See [Deployment — Choosing TotalSegments](deployment.md#choosing-totalsegments) for detailed guidance.
+
+`MaxPostBatchPause` controls adaptive throttling after successful non-empty batches in continuous mode. The pause grows under sustained full batches, shrinks/resets as load cools, and is capped by this value (default `100ms`). Set it to `<= 0` to disable adaptive post-batch pause.
 
 ## Wakeup Sources
 
